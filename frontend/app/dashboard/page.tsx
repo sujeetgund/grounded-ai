@@ -1,22 +1,15 @@
-"use client";
-
-import React, { useState } from "react";
+import React from "react";
 import Link from "next/link";
 import {
-  // PiFolderDuotone as Folder,
-  // PiFileTextDuotone as FileText,
   PiChatCircleTextDuotone as MessageSquare,
-  PiPlusBold as Plus,
-  PiGearDuotone as Settings,
-  PiSignOutDuotone as LogOut,
   PiDotsThreeVerticalBold as MoreVertical,
   PiLightningFill as Activity,
-  PiUserDuotone as User,
-  PiTrendUpBold
+  PiTrendUpBold,
 } from "react-icons/pi";
-
 import { MdFolderCopy as Folder } from "react-icons/md";
 import { IoDocuments as FileText } from "react-icons/io5";
+
+import { DashboardHeader, NewCollectionModalButton } from "./_components/client-components";
 
 type Collection = {
   id: string;
@@ -24,175 +17,54 @@ type Collection = {
   description: string;
   docCount: number;
   lastUpdated: string;
-  color: string;
+  color?: string;
   groundingScore: number;
+  created_at: string;
 };
 
-export default function DashboardPage() {
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isNewCollectionOpen, setIsNewCollectionOpen] = useState(false);
-  const [newCollectionName, setNewCollectionName] = useState("");
+// Next.js config to ensure dynamic rendering so it always fetches fresh data
+export const dynamic = 'force-dynamic';
 
+async function getCollections(): Promise<Collection[]> {
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+  
+  try {
+    const res = await fetch(`${backendUrl}/collections`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (error) {
+    console.error("Failed to fetch collections:", error);
+    return [];
+  }
+}
+
+export default async function DashboardPage() {
+  const collections = await getCollections();
+  
   const stats = [
     {
       label: "Total Collections",
-      value: "3",
+      value: collections.length.toString(),
       icon: <Folder className="w-6 h-6 text-brand-primary" />,
       trend: "+1 this week",
     },
     {
       label: "Documents Processed",
-      value: "142",
+      value: collections.reduce((acc, col) => acc + col.docCount, 0).toString(),
       icon: <FileText className="w-6 h-6 text-brand-primary" />,
-      trend: "+12 this week",
+      trend: "+0 this week",
     },
     {
       label: "Agent Queries Run",
-      value: "8,439",
+      value: "0",
       icon: <Activity className="w-6 h-6 text-brand-primary" />,
-      trend: "+430 this week",
+      trend: "+0 this week",
     },
   ];
-  const [collections, setCollections] = useState([
-    {
-      id: "123",
-      name: "Product Strategy",
-      description:
-        "Contains user research, architecture RFCs, and quarterly financial reports.",
-      docCount: 4,
-      lastUpdated: "2 hours ago",
-      color: "bg-brand-primary",
-      groundingScore: 91,
-    },
-    {
-      id: "456",
-      name: "Engineering Docs",
-      description:
-        "API specifications, backend architecture, and deployment runbooks.",
-      docCount: 18,
-      lastUpdated: "1 day ago",
-      color: "bg-[#b8a2ff]",
-      groundingScore: 82,
-    },
-    {
-      id: "789",
-      name: "HR Onboarding",
-      description:
-        "Employee handbooks, benefits information, and company policies.",
-      docCount: 120,
-      lastUpdated: "3 days ago",
-      color: "bg-[#ffb347]",
-      groundingScore: 68,
-    },
-  ]);
-
-  const handleCreateCollection = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCollectionName.trim()) return;
-
-    const newCol: Collection = {
-      id: Date.now().toString(),
-      name: newCollectionName,
-      description: "Newly created collection.",
-      docCount: 0,
-      lastUpdated: "Just now",
-      color: "bg-brand-primary",
-      groundingScore: 0,
-    };
-
-    setCollections([newCol, ...collections]);
-    setNewCollectionName("");
-    setIsNewCollectionOpen(false);
-  };
 
   return (
     <div className="min-h-screen bg-brand-canvas-soft font-sans flex flex-col">
-      {/* New Collection Modal */}
-      {isNewCollectionOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand-ink/40 backdrop-blur-sm p-4">
-          <div className="bg-brand-canvas rounded-[24px] p-8 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="font-display font-bold text-2xl text-brand-ink mb-6">
-              Create New Collection
-            </h3>
-
-            <form
-              onSubmit={handleCreateCollection}
-              className="flex flex-col gap-5"
-            >
-              <div>
-                <label className="block text-sm font-semibold text-brand-ink mb-2">
-                  Collection Name
-                </label>
-                <input
-                  type="text"
-                  value={newCollectionName}
-                  onChange={(e) => setNewCollectionName(e.target.value)}
-                  placeholder="e.g. Q4 Marketing Materials"
-                  className="w-full bg-brand-canvas-soft border-2 border-transparent focus:border-brand-primary outline-none px-4 py-3 rounded-xl text-brand-ink font-medium transition-colors"
-                  autoFocus
-                />
-              </div>
-
-              <div className="flex gap-3 mt-4 justify-end">
-                <button
-                  type="button"
-                  onClick={() => setIsNewCollectionOpen(false)}
-                  className="bg-brand-canvas text-brand-ink border border-brand-mute hover:bg-brand-canvas-soft font-semibold px-6 py-3 rounded-xl transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!newCollectionName.trim()}
-                  className="bg-brand-primary text-brand-on-primary hover:bg-brand-primary-active disabled:opacity-50 font-semibold px-6 py-3 rounded-xl transition-colors"
-                >
-                  Create
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Header NavBar */}
-      <header className="bg-brand-canvas px-8 py-4 flex items-center justify-between border-b border-brand-canvas-soft relative z-20">
-        <h1 className="font-display font-black text-2xl text-brand-ink tracking-tight">
-          GroundedAI
-        </h1>
-        <div className="relative">
-          <button
-            onClick={() => setIsProfileOpen(!isProfileOpen)}
-            className="flex items-center gap-2 hover:bg-brand-canvas-soft p-1.5 pr-4 rounded-full transition-colors"
-          >
-            <div className="w-8 h-8 rounded-full bg-brand-ink text-brand-canvas flex items-center justify-center font-bold text-sm">
-              S
-            </div>
-            <span className="font-semibold text-brand-ink text-sm hidden sm:block">
-              Sujeet
-            </span>
-          </button>
-
-          {isProfileOpen && (
-            <div className="absolute right-0 top-full mt-2 w-48 bg-brand-canvas rounded-2xl shadow-xl border border-brand-canvas-soft overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-              <div className="flex flex-col">
-                <Link href="/profile" className="flex items-center gap-3 px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-brand-canvas-soft transition-colors text-left">
-                  <User className="w-4 h-4" />
-                  Profile
-                </Link>
-                <Link href="/settings" className="flex items-center gap-3 px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-brand-canvas-soft transition-colors text-left">
-                  <Settings className="w-4 h-4" />
-                  Settings
-                </Link>
-                <div className="h-px bg-brand-canvas-soft my-1"></div>
-                <Link href="/login" className="flex items-center gap-3 px-4 py-3 text-sm font-semibold text-brand-negative hover:bg-brand-negative/10 transition-colors text-left">
-                  <LogOut className="w-4 h-4" />
-                  Log out
-                </Link>
-              </div>
-            </div>
-          )}
-        </div>
-      </header>
+      <DashboardHeader />
 
       {/* Main Content */}
       <main className="flex-grow max-w-6xl w-full mx-auto p-8 flex flex-col gap-10">
@@ -203,17 +75,11 @@ export default function DashboardPage() {
               Welcome back, Sujeet.
             </h2>
             <p className="text-brand-body text-lg">
-              Your agents have processed 142 documents. Last active 2 hours ago.
+              Your agents have processed {stats[1].value} documents. Last active 2 hours ago.
             </p>
           </div>
 
-          <button
-            onClick={() => setIsNewCollectionOpen(true)}
-            className="bg-brand-primary text-brand-on-primary hover:bg-brand-primary-active font-semibold text-base px-6 py-3 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm flex-shrink-0"
-          >
-            <Plus className="w-5 h-5" />
-            New Collection
-          </button>
+          <NewCollectionModalButton />
         </div>
 
         {/* Command Center Stats Bar */}
@@ -271,13 +137,7 @@ export default function DashboardPage() {
               </div>
               <h4 className="font-display font-bold text-2xl text-brand-ink mb-2">Create your first collection</h4>
               <p className="text-brand-mute max-w-sm mb-8">Upload your documents and start chatting with a fully grounded AI agent in seconds.</p>
-              <button 
-                onClick={() => setIsNewCollectionOpen(true)}
-                className="bg-brand-primary text-brand-on-primary hover:bg-brand-primary-active font-semibold px-6 py-3 rounded-xl flex items-center gap-2 transition-colors shadow-sm"
-              >
-                <Plus className="w-5 h-5" />
-                New Collection
-              </button>
+              <NewCollectionModalButton />
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -286,6 +146,11 @@ export default function DashboardPage() {
                 const isMed = col.groundingScore >= 70 && col.groundingScore < 85;
                 const scoreColor = isHigh ? 'text-brand-positive bg-brand-positive/10' : isMed ? 'text-brand-warning bg-brand-warning/10' : 'text-brand-negative bg-brand-negative/10';
                 const initial = col.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                const color = col.color || "bg-brand-primary";
+
+                // Format the created_at date
+                const date = new Date(col.created_at);
+                const timeAgo = date.toLocaleDateString();
 
                 return (
                   <div
@@ -294,10 +159,10 @@ export default function DashboardPage() {
                   >
                     <div className="flex justify-between items-start mb-6">
                       <div
-                        className={`w-12 h-12 rounded-full ${col.color} bg-opacity-20 flex items-center justify-center border border-brand-canvas-soft shadow-sm`}
+                        className={`w-12 h-12 rounded-full ${color} bg-opacity-20 flex items-center justify-center border border-brand-canvas-soft shadow-sm`}
                       >
-                        <span className={`font-display font-black text-lg ${col.color.includes("brand-primary") ? "text-brand-primary" : col.color.replace("bg-", "text-")}`}
-                          style={{ color: !col.color.includes("brand") ? col.color.replace("bg-[", "").replace("]", "") : undefined }}>
+                        <span className={`font-display font-black text-lg ${color.includes("brand-primary") ? "text-brand-primary" : color.replace("bg-", "text-")}`}
+                          style={{ color: !color.includes("brand") ? color.replace("bg-[", "").replace("]", "") : undefined }}>
                           {initial}
                         </span>
                       </div>
@@ -327,7 +192,7 @@ export default function DashboardPage() {
                           {col.docCount} Docs
                         </div>
                         <div className="text-brand-mute text-[10px] font-semibold uppercase tracking-wider">
-                          Updated {col.lastUpdated}
+                          Updated {timeAgo}
                         </div>
                       </div>
                       
