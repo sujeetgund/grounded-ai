@@ -11,7 +11,7 @@ import json
 from config import settings
 from database import get_db
 from models import Document, DocumentStatus, Collection, DocumentChunk
-from schemas import CollectionCreate, CollectionResponse, CollectionDetailResponse, DocumentResponse
+from schemas import CollectionCreate, CollectionResponse, CollectionDetailResponse, DocumentResponse, ChatRequest
 from s3_utils import upload_file_to_s3
 from arq import create_pool
 from worker import redis_settings
@@ -193,4 +193,68 @@ def get_collection(collection_id: str, db: Session = Depends(get_db)):
         documents=doc_responses
     )
     return response
+
+@app.post("/collections/{collection_id}/chat")
+async def chat_with_collection(collection_id: str, request: Request, chat_request: ChatRequest):
+    from agent.graph import agent_app
+    from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+    
+    # Convert messages
+    langchain_messages = []
+    for msg in chat_request.messages:
+        if msg.role == "user":
+            langchain_messages.append(HumanMessage(content=msg.content))
+        elif msg.role == "assistant":
+            langchain_messages.append(AIMessage(content=msg.content))
+        elif msg.role == "system":
+            langchain_messages.append(SystemMessage(content=msg.content))
+            
+    initial_state = {
+        "messages": langchain_messages,
+        "collection_id": collection_id,
+        "trace_steps": [],
+        "iterations": 0
+    }
+    
+    async def chat_generator():
+        final_generation = None
+        final_grounded = True
+        
+        try:
+            async for event in agent_app.astream(initial_state):
+                if await request.is_disconnected():
+                    break
+                    
+                node_name = list(event.keys())[0]
+                state_update = event[node_name]
+                
+                if "trace_steps" in state_update and len(state_update["trace_steps"]) > 0:
+                    latest_step = state_update["trace_steps"][-1]
+                    yield {
+                        "event": "trace",
+                        "data": json.dumps(latest_step)
+                    }
+                    
+                if "generation" in state_update:
+                    final_generation = state_update["generation"]
+                    
+                if "is_grounded" in state_update:
+                    final_grounded = state_update["is_grounded"]
+                    
+            if final_generation:
+                yield {
+                    "event": "message",
+                    "data": json.dumps({
+                        "content": final_generation,
+                        "is_grounded": final_grounded
+                    })
+                }
+        except Exception as e:
+            print(f"Graph execution error: {e}")
+            yield {
+                "event": "error",
+                "data": json.dumps({"detail": str(e)})
+            }
+            
+    return EventSourceResponse(chat_generator())
 

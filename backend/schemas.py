@@ -33,3 +33,10 @@ class DocumentResponse(BaseModel):
 
 class CollectionDetailResponse(CollectionResponse):
     documents: List[DocumentResponse] = []
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    messages: List[ChatMessage]
