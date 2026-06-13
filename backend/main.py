@@ -219,6 +219,8 @@ async def chat_with_collection(collection_id: str, request: Request, chat_reques
     async def chat_generator():
         final_generation = None
         final_grounded = True
+        final_documents = []
+        final_fallback = False
         
         try:
             async for event in agent_app.astream(initial_state):
@@ -235,18 +237,35 @@ async def chat_with_collection(collection_id: str, request: Request, chat_reques
                         "data": json.dumps(latest_step)
                     }
                     
+                if "documents" in state_update:
+                    final_documents = state_update["documents"]
+                    
                 if "generation" in state_update:
                     final_generation = state_update["generation"]
                     
                 if "is_grounded" in state_update:
                     final_grounded = state_update["is_grounded"]
                     
+                if "web_fallback_needed" in state_update:
+                    final_fallback = state_update["web_fallback_needed"]
+                    
             if final_generation:
+                # Map documents to the sources format expected by the frontend
+                sources = []
+                for doc in final_documents:
+                    sources.append({
+                        "name": doc.get("document_name", "Unknown Source"),
+                        "page": doc.get("page_number", None),
+                        "type": "web" if str(doc.get("id", "")).startswith("web_") else "doc"
+                    })
+                    
                 yield {
                     "event": "message",
                     "data": json.dumps({
                         "content": final_generation,
-                        "is_grounded": final_grounded
+                        "is_grounded": final_grounded,
+                        "is_fallback": final_fallback,
+                        "sources": sources
                     })
                 }
         except Exception as e:

@@ -1,6 +1,5 @@
 import json
-import urllib.request
-from typing import Dict, Any, List
+import urllib
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_groq import ChatGroq
 from config import settings
@@ -9,7 +8,7 @@ from .retriever import hybrid_search
 
 # Initialize models
 grader_llm = ChatGroq(model="llama-3.1-8b-instant", api_key=settings.GROQ_API_KEY)
-# We use the user-requested model string for generation
+# We use the smarter model for generation
 generator_llm = ChatGroq(model="openai/gpt-oss-120b", api_key=settings.GROQ_API_KEY)
 
 def route_and_rewrite_node(state: AgentState) -> AgentState:
@@ -23,11 +22,12 @@ def route_and_rewrite_node(state: AgentState) -> AgentState:
         
     latest_msg = messages[-1].content
     
-    # Simple heuristic or LLM call to route
     prompt = f"""You are a query router and rewriter for a Retrieval-Augmented Generation (RAG) system.
 Look at the following conversation history and the latest user message.
-If the latest message is a simple greeting or conversational chit-chat that doesn't require searching for knowledge, respond with exactly: "CHITCHAT".
-Otherwise, rewrite the latest user message into a standalone search query that contains all necessary context from the conversation history to be used in a vector search.
+
+If the latest message is ONLY a simple greeting (like "hello", "hi", "how are you?") or a direct response to a conversational pleasantry, respond with exactly: "CHITCHAT".
+
+If the user asks ANY question (e.g. "who is...", "what is..."), requests any information, or asks to summarize a document, it ALWAYS REQUIRES knowledge. In this case, rewrite the latest user message into a standalone search query that contains all necessary context from the conversation history to be used in a vector search.
 
 Conversation History:
 {[m.content for m in messages[:-1]]}
@@ -35,10 +35,17 @@ Conversation History:
 Latest User Message: {latest_msg}
 
 Output ONLY "CHITCHAT" or the standalone query string. Do not output anything else.
+CRITICAL INSTRUCTION: Do NOT use or call any tools or functions. Output your response directly as plain text.
 """
-    response = grader_llm.invoke([SystemMessage(content=prompt)])
+    response = generator_llm.invoke([SystemMessage(content=prompt)])
     output = response.content.strip()
     
+    # Strip any potential quotes from the LLM output
+    if output.startswith('"') and output.endswith('"'):
+        output = output[1:-1]
+    if output.startswith("'") and output.endswith("'"):
+        output = output[1:-1]
+        
     trace_steps = state.get("trace_steps", [])
     
     if output == "CHITCHAT":
@@ -47,7 +54,6 @@ Output ONLY "CHITCHAT" or the standalone query string. Do not output anything el
     else:
         trace_steps.append({"node": "route", "status": f"Rewrote query: {output}"})
         return {"query": output, "trace_steps": trace_steps}
-
 
 def retrieve_node(state: AgentState) -> AgentState:
     """
@@ -62,7 +68,6 @@ def retrieve_node(state: AgentState) -> AgentState:
     trace_steps.append({"node": "retrieve", "status": f"Retrieved {len(docs)} chunks via Hybrid Search (RRF)"})
     
     return {"documents": docs, "trace_steps": trace_steps}
-
 
 def grade_documents_node(state: AgentState) -> AgentState:
     """
@@ -85,9 +90,9 @@ Here is the user question: {query}
 
 If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant.
 Give a binary score 'yes' or 'no' to indicate whether the document is relevant to the question.
-Output ONLY 'yes' or 'no'."""
+Output ONLY 'yes' or 'no'. CRITICAL INSTRUCTION: Do NOT use or call any tools or functions. Output your response directly as plain text."""
         
-        response = grader_llm.invoke([SystemMessage(content=prompt)])
+        response = generator_llm.invoke([SystemMessage(content=prompt)])
         grade = response.content.strip().lower()
         
         if "yes" in grade:
@@ -108,7 +113,6 @@ Output ONLY 'yes' or 'no'."""
         "web_fallback_needed": web_fallback,
         "trace_steps": trace_steps
     }
-
 
 def web_search_node(state: AgentState) -> AgentState:
     """
@@ -149,14 +153,14 @@ def web_search_node(state: AgentState) -> AgentState:
         trace_steps.append({"node": "web_search", "status": "Web search failed"})
         return {"trace_steps": trace_steps}
 
-
 def generate_node(state: AgentState) -> AgentState:
     """
     Generates the final answer using the retrieved/web context.
     """
     if state.get("query") == "CHITCHAT":
         # Direct generation for simple chat
-        response = generator_llm.invoke(state["messages"])
+        chat_prompt = SystemMessage(content="You are a helpful AI assistant. Answer the user conversationally. CRITICAL INSTRUCTION: Do NOT use or call any tools or functions. Output your response directly as plain text.")
+        response = generator_llm.invoke([chat_prompt] + list(state["messages"]))
         trace_steps = state.get("trace_steps", [])
         trace_steps.append({"node": "generate", "status": "Generated conversational response"})
         return {"generation": response.content, "trace_steps": trace_steps}
@@ -179,7 +183,8 @@ Context:
 
 User Query: {query}
 
-Answer:"""
+Answer:
+CRITICAL INSTRUCTION: Do NOT use or call any tools or functions. Output your response directly as plain text."""
 
     response = generator_llm.invoke([SystemMessage(content=prompt)])
     
@@ -187,7 +192,6 @@ Answer:"""
     trace_steps.append({"node": "generate", "status": "Generated answer from context"})
     
     return {"generation": response.content, "trace_steps": trace_steps}
-
 
 def check_hallucination_node(state: AgentState) -> AgentState:
     """
@@ -208,10 +212,11 @@ Here are the retrieved facts:
 Here is the LLM generation:
 {generation}
 
+Determine if the answer is completely grounded in and supported by the facts.
 Give a binary score 'yes' or 'no'. 'yes' means that the answer is completely grounded in / supported by the facts. 'no' means it contains hallucinations or unverified claims.
-Output ONLY 'yes' or 'no'."""
+Output ONLY 'yes' or 'no'. CRITICAL INSTRUCTION: Do NOT use or call any tools or functions. Output your response directly as plain text."""
 
-    response = grader_llm.invoke([SystemMessage(content=prompt)])
+    response = generator_llm.invoke([SystemMessage(content=prompt)])
     grade = response.content.strip().lower()
     
     is_grounded = "yes" in grade
