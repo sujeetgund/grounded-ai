@@ -18,7 +18,7 @@ def route_and_rewrite_node(state: AgentState) -> AgentState:
     """
     messages = state["messages"]
     if not messages:
-        return {"query": ""}
+        return {"queries": []}
         
     latest_msg = messages[-1].content
     
@@ -50,65 +50,64 @@ CRITICAL INSTRUCTION: Do NOT use or call any tools or functions. Output your res
     
     if output == "CHITCHAT":
         trace_steps.append({"node": "route", "status": "Routed to chit-chat"})
-        return {"query": "CHITCHAT", "trace_steps": trace_steps}
+        return {"queries": ["CHITCHAT"], "trace_steps": trace_steps}
     else:
         trace_steps.append({"node": "route", "status": f"Rewrote query: {output}"})
-        return {"query": output, "trace_steps": trace_steps}
+        return {"queries": [latest_msg, output], "trace_steps": trace_steps}
 
 def retrieve_node(state: AgentState) -> AgentState:
     """
     Retrieves documents based on the rewritten query.
     """
-    query = state["query"]
+    queries = state["queries"]
     collection_id = state["collection_id"]
     
-    docs = hybrid_search(query, collection_id, k=5)
+    docs = hybrid_search(queries, collection_id, k=10)
     
     trace_steps = state.get("trace_steps", [])
-    trace_steps.append({"node": "retrieve", "status": f"Retrieved {len(docs)} chunks via Hybrid Search (RRF)"})
+    trace_steps.append({"node": "retrieve", "status": f"Retrieved and re-ranked top {len(docs)} chunks"})
     
     return {"documents": docs, "trace_steps": trace_steps}
 
 def grade_documents_node(state: AgentState) -> AgentState:
     """
-    Evaluates each retrieved chunk for relevance to the query.
+    Evaluates if the combined retrieved chunks contain enough information to answer the user's question.
+    It does not filter chunks, only decides if web fallback is needed.
     """
-    query = state["query"]
+    queries = state["queries"]
     documents = state["documents"]
+    main_query = queries[0] if queries else ""
     
     if not documents:
         return {"documents": [], "relevance_score": 0.0, "web_fallback_needed": True}
         
-    relevant_docs = []
+    combined_context = "\n".join([doc['content'] for doc in documents])
     
-    for doc in documents:
-        prompt = f"""You are a grader assessing relevance of a retrieved document to a user question.
-Here is the retrieved document:
-{doc['content']}
+    prompt = f"""You are a grader assessing whether a set of retrieved documents contains enough information to answer the user question.
+Here are the retrieved documents:
+{combined_context}
 
-Here is the user question: {query}
+Here is the user question: {main_query}
 
-If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant.
-Give a binary score 'yes' or 'no' to indicate whether the document is relevant to the question.
+If the documents contain any information that is useful to answer or partially answer the question, grade it as relevant.
+Give a binary score 'yes' or 'no' to indicate whether we have enough context (yes) or need to search the web (no).
 Output ONLY 'yes' or 'no'. CRITICAL INSTRUCTION: Do NOT use or call any tools or functions. Output your response directly as plain text."""
-        
-        response = generator_llm.invoke([SystemMessage(content=prompt)])
-        grade = response.content.strip().lower()
-        
-        if "yes" in grade:
-            relevant_docs.append(doc)
-            
-    relevance_score = len(relevant_docs) / len(documents) if documents else 0.0
-    web_fallback = len(relevant_docs) == 0
+    
+    response = generator_llm.invoke([SystemMessage(content=prompt)])
+    grade = response.content.strip().lower()
+    
+    web_fallback = "no" in grade
+    relevance_score = 1.0 if not web_fallback else 0.0
     
     trace_steps = state.get("trace_steps", [])
+    status = "Context sufficient" if not web_fallback else "Context insufficient, web fallback triggered"
     trace_steps.append({
         "node": "grade_documents", 
-        "status": f"Graded chunks: {len(relevant_docs)}/{len(documents)} relevant"
+        "status": status
     })
     
     return {
-        "documents": relevant_docs,
+        "documents": documents, # Pass all documents forward
         "relevance_score": relevance_score,
         "web_fallback_needed": web_fallback,
         "trace_steps": trace_steps
@@ -118,7 +117,8 @@ def web_search_node(state: AgentState) -> AgentState:
     """
     Falls back to Tavily web search if retrieval fails.
     """
-    query = state["query"]
+    queries = state["queries"]
+    query = queries[0] if queries else ""
     trace_steps = state.get("trace_steps", [])
     
     try:
@@ -157,7 +157,7 @@ def generate_node(state: AgentState) -> AgentState:
     """
     Generates the final answer using the retrieved/web context.
     """
-    if state.get("query") == "CHITCHAT":
+    if state.get("queries") and "CHITCHAT" in state["queries"]:
         # Direct generation for simple chat
         chat_prompt = SystemMessage(content="You are a helpful AI assistant. Answer the user conversationally. CRITICAL INSTRUCTION: Do NOT use or call any tools or functions. Output your response directly as plain text.")
         response = generator_llm.invoke([chat_prompt] + list(state["messages"]))
@@ -165,7 +165,8 @@ def generate_node(state: AgentState) -> AgentState:
         trace_steps.append({"node": "generate", "status": "Generated conversational response"})
         return {"generation": response.content, "trace_steps": trace_steps}
         
-    query = state["query"]
+    queries = state["queries"]
+    query = queries[0] if queries else ""
     documents = state["documents"]
     
     context_str = ""
@@ -197,7 +198,7 @@ def check_hallucination_node(state: AgentState) -> AgentState:
     """
     Checks if the generated answer is grounded in the provided documents.
     """
-    if state.get("query") == "CHITCHAT":
+    if state.get("queries") and "CHITCHAT" in state["queries"]:
         return {"is_grounded": True}
         
     documents = state["documents"]

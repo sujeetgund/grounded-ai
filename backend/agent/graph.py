@@ -24,7 +24,7 @@ def build_graph() -> StateGraph:
     # Define edges
     
     def route_after_rewrite(state: AgentState) -> Literal["generate", "retrieve"]:
-        if state.get("query") == "CHITCHAT":
+        if state.get("queries") and "CHITCHAT" in state["queries"]:
             return "generate"
         return "retrieve"
         
@@ -58,7 +58,7 @@ def build_graph() -> StateGraph:
     workflow.add_edge("generate", "check_hallucination")
     
     def route_after_hallucination(state: AgentState) -> Literal["END", "web_search"]:
-        if state.get("query") == "CHITCHAT" or state.get("is_grounded"):
+        if (state.get("queries") and "CHITCHAT" in state["queries"]) or state.get("is_grounded"):
             return "END"
             
         iterations = state.get("iterations", 0)

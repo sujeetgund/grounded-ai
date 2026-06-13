@@ -6,82 +6,100 @@ from database import SessionLocal
 from config import settings
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 
+import requests
+
 # Reuse the same embedding model as the worker
 embeddings_model = HuggingFaceEndpointEmbeddings(
-    model="sentence-transformers/all-MiniLM-L6-v2",
+    model="BAAI/bge-small-en-v1.5",
     huggingfacehub_api_token=settings.HF_TOKEN
 )
 
-def hybrid_search(query: str, collection_id: str, k: int = 5) -> List[Dict[str, Any]]:
+def rerank_documents(query: str, documents: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
+    if not documents:
+        return []
+        
+    API_URL = "https://api-inference.huggingface.co/models/cross-encoder/nli-deberta-v3-base"
+    headers = {"Authorization": f"Bearer {settings.HF_TOKEN}"}
+    
+    # Limit content length to avoid exceeding API token limits
+    payload = {
+        "inputs": [{"text": query, "text_pair": doc["content"][:2000]} for doc in documents]
+    }
+    
+    try:
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=10)
+        if response.status_code == 200:
+            results = response.json()
+            for i, doc in enumerate(documents):
+                doc_results = results[i]
+                entailment_score = 0.0
+                for label_score in doc_results:
+                    if label_score.get("label", "").lower() == "entailment":
+                        entailment_score = label_score.get("score", 0.0)
+                        break
+                doc["rerank_score"] = entailment_score
+                
+            documents.sort(key=lambda x: x.get("rerank_score", 0.0), reverse=True)
+            return documents[:top_k]
+        else:
+            print(f"HF API Reranking failed: {response.text}")
+            # Fallback to original order if reranking fails
+            return documents[:top_k]
+    except Exception as e:
+        print(f"HF API Reranking error: {e}")
+        return documents[:top_k]
+
+def hybrid_search(queries: List[str], collection_id: str, k: int = 10) -> List[Dict[str, Any]]:
     """
     Executes a hybrid search using both Vector Cosine Similarity (pgvector)
-    and Full-Text Search (tsvector), combining results with Reciprocal Rank Fusion (RRF).
+    and Full-Text Search (tsvector) for multiple queries, pooling the results.
     """
     db: Session = SessionLocal()
     
     try:
-        # 1. Generate query embedding
-        query_embedding = embeddings_model.embed_query(query)
-        
-        # We need to filter chunks by the documents belonging to the given collection.
-        # This requires joining DocumentChunk with Document.
-        
-        # 2. Vector Search (Semantic)
-        vector_results = db.query(DocumentChunk, Document).join(
-            Document, DocumentChunk.document_id == Document.id
-        ).filter(
-            Document.collection_id == collection_id
-        ).order_by(
-            DocumentChunk.embedding.cosine_distance(query_embedding)
-        ).limit(k * 2).all()
-        
-        # 3. Keyword Search (BM25 / tsvector)
-        # Using websearch_to_tsquery for better handling of natural language user queries
-        tsquery_str = "websearch_to_tsquery('english', :query)"
-        keyword_results = db.query(DocumentChunk, Document).join(
-            Document, DocumentChunk.document_id == Document.id
-        ).filter(
-            Document.collection_id == collection_id,
-            DocumentChunk.text_search_vector.op("@@")(text(tsquery_str).bindparams(query=query))
-        ).order_by(
-            text(f"ts_rank(text_search_vector, {tsquery_str}) DESC").bindparams(query=query)
-        ).limit(k * 2).all()
-        
-        # 4. Reciprocal Rank Fusion (RRF)
-        # RRF Score = 1 / (60 + rank)
-        rrf_k = 60
-        scores = {}
         chunk_map = {}
         
-        # Process vector ranks
-        for rank, (chunk, doc) in enumerate(vector_results):
-            if chunk.id not in scores:
-                scores[chunk.id] = 0
-                chunk_map[chunk.id] = (chunk, doc)
-            scores[chunk.id] += 1.0 / (rrf_k + rank + 1)
+        for query in queries:
+            if not query or query == "CHITCHAT":
+                continue
+                
+            query_embedding = embeddings_model.embed_query(query)
             
-        # Process keyword ranks
-        for rank, (chunk, doc) in enumerate(keyword_results):
-            if chunk.id not in scores:
-                scores[chunk.id] = 0
-                chunk_map[chunk.id] = (chunk, doc)
-            scores[chunk.id] += 1.0 / (rrf_k + rank + 1)
+            # Vector Search
+            vector_results = db.query(DocumentChunk, Document).join(
+                Document, DocumentChunk.document_id == Document.id
+            ).filter(
+                Document.collection_id == collection_id
+            ).order_by(
+                DocumentChunk.embedding.cosine_distance(query_embedding)
+            ).limit(k).all()
             
-        # 5. Sort by RRF score and get top k
-        sorted_chunk_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)[:k]
+            # Keyword Search
+            tsquery_str = "websearch_to_tsquery('english', :query)"
+            keyword_results = db.query(DocumentChunk, Document).join(
+                Document, DocumentChunk.document_id == Document.id
+            ).filter(
+                Document.collection_id == collection_id,
+                DocumentChunk.text_search_vector.op("@@")(text(tsquery_str).bindparams(query=query))
+            ).order_by(
+                text(f"ts_rank(text_search_vector, {tsquery_str}) DESC").bindparams(query=query)
+            ).limit(k).all()
+            
+            # Pool and deduplicate
+            for chunk, doc in vector_results + keyword_results:
+                if chunk.id not in chunk_map:
+                    chunk_map[chunk.id] = {
+                        "id": chunk.id,
+                        "content": chunk.content,
+                        "document_name": doc.filename,
+                        "page_number": chunk.page_number
+                    }
+                    
+        pooled_docs = list(chunk_map.values())
         
-        final_docs = []
-        for cid in sorted_chunk_ids:
-            chunk, doc = chunk_map[cid]
-            final_docs.append({
-                "id": chunk.id,
-                "content": chunk.content,
-                "document_name": doc.filename,
-                "page_number": chunk.page_number,
-                "rrf_score": scores[cid]
-            })
-            
-        return final_docs
+        # Use the first query (original query) as the anchor for reranking
+        main_query = queries[0] if queries else ""
+        return rerank_documents(main_query, pooled_docs, top_k=6)
 
     finally:
         db.close()

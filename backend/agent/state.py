@@ -9,8 +9,8 @@ class AgentState(TypedDict):
     # The chat history and current user input
     messages: Annotated[Sequence[BaseMessage], add_messages]
     
-    # Standalone query generated from the chat history
-    query: str
+    # Search query
+    queries: List[str]
     
     # ID of the collection to search in
     collection_id: str

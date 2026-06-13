@@ -13,7 +13,7 @@ from s3_utils import download_file_from_s3
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions
-from docling.chunking import HierarchicalChunker
+from langchain_text_splitters import MarkdownTextSplitter
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 
 import redis
@@ -28,7 +28,7 @@ redis_settings = RedisSettings(
 )
 
 embeddings_model = HuggingFaceEndpointEmbeddings(
-    model="sentence-transformers/all-MiniLM-L6-v2",
+    model="BAAI/bge-small-en-v1.5",
     huggingfacehub_api_token=settings.HF_TOKEN
 )
 
@@ -69,16 +69,16 @@ def process_document_sync(document_id: str):
         )
         result = converter.convert(temp_file_path)
         
-        print(f"Chunking {doc.filename}...")
-        chunker = HierarchicalChunker()
-        chunks = list(chunker.chunk(result.document))
+        print(f"Converting to Markdown and Chunking {doc.filename}...")
+        markdown_text = result.document.export_to_markdown()
+        
+        chunker = MarkdownTextSplitter(chunk_size=1000, chunk_overlap=200)
+        texts_to_embed = chunker.split_text(markdown_text)
         
         doc.status = DocumentStatus.INDEXING
         db.commit()
         publish_status(doc.id, doc.status)
 
-        texts_to_embed = [chunk.text for chunk in chunks]
-        
         print(f"Embedding {len(texts_to_embed)} chunks via HF Endpoint...")
         embeddings = []
         batch_size = 32
@@ -87,24 +87,15 @@ def process_document_sync(document_id: str):
             batch_embeddings = embeddings_model.embed_documents(batch)
             embeddings.extend(batch_embeddings)
         
-        print(f"Saving {len(chunks)} chunks to PostgreSQL...")
-        for idx, chunk in enumerate(chunks):
+        print(f"Saving {len(texts_to_embed)} chunks to PostgreSQL...")
+        for idx, text_content in enumerate(texts_to_embed):
             page_no = None
-            if chunk.meta and chunk.meta.doc_items:
-                for item in chunk.meta.doc_items:
-                    if hasattr(item, 'prov') and item.prov:
-                        for p in item.prov:
-                            if hasattr(p, 'page_no'):
-                                page_no = p.page_no
-                                break
-                    if page_no:
-                        break
 
             doc_chunk = DocumentChunk(
                 document_id=doc.id,
                 chunk_index=idx,
                 page_number=page_no,
-                content=chunk.text,
+                content=text_content,
                 embedding=embeddings[idx]
             )
             db.add(doc_chunk)
