@@ -256,7 +256,8 @@ async def chat_with_collection(collection_id: str, request: Request, chat_reques
                     sources.append({
                         "name": doc.get("document_name", "Unknown Source"),
                         "page": doc.get("page_number", None),
-                        "type": "web" if str(doc.get("id", "")).startswith("web_") else "doc"
+                        "type": "web" if str(doc.get("id", "")).startswith("web_") else "doc",
+                        "url": doc.get("url", None)
                     })
                     
                 yield {

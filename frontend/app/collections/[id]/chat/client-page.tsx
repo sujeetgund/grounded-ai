@@ -293,15 +293,27 @@ export default function ChatClientPage({ collection }: { collection: any }) {
 
                                 return (
                                   <Tooltip key={sourceIdx}>
-                                    <TooltipTrigger className="inline-block mx-0.5 align-middle -top-[1px] relative cursor-default">
-                                      <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-brand-canvas-soft border border-brand-mute/20 text-[10px] font-bold text-brand-ink cursor-pointer hover:bg-brand-primary hover:text-brand-on-primary hover:border-brand-primary transition-colors">
+                                    <TooltipTrigger 
+                                      className={`inline-block mx-0.5 align-middle -top-[1px] relative ${source?.type === 'web' && source?.url ? 'cursor-pointer' : 'cursor-default'}`}
+                                      onClick={() => {
+                                        if (source?.type === 'web' && source?.url) {
+                                          window.open(source.url, '_blank', 'noopener,noreferrer');
+                                        }
+                                      }}
+                                    >
+                                      <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-brand-canvas-soft border border-brand-mute/20 text-[10px] font-bold text-brand-ink hover:bg-brand-primary hover:text-brand-on-primary hover:border-brand-primary transition-colors">
                                         {children}
                                       </span>
                                     </TooltipTrigger>
                                     {source && (
                                       <TooltipContent side="top" sideOffset={6} className="bg-brand-ink text-brand-canvas text-xs px-3 py-2 rounded-xl shadow-xl flex flex-col gap-0.5 w-max max-w-[220px] border-none pointer-events-none">
                                         <span className="font-bold truncate leading-tight">{source.name}</span>
-                                        {source.page && <span className="text-brand-canvas/70 font-medium text-[10px] mt-0.5">{source.type === 'doc' ? 'Page' : 'Source'} • {source.page}</span>}
+                                        {source.type === 'web' && source.url && (
+                                          <span className="text-brand-canvas/70 font-medium text-[10px] mt-0.5 truncate max-w-full block">{source.url}</span>
+                                        )}
+                                        {source.type === 'doc' && source.page && (
+                                          <span className="text-brand-canvas/70 font-medium text-[10px] mt-0.5">Page • {source.page}</span>
+                                        )}
                                       </TooltipContent>
                                     )}
                                   </Tooltip>

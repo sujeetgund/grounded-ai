@@ -146,7 +146,7 @@ def web_search_node(state: AgentState) -> AgentState:
             })
             
         trace_steps.append({"node": "web_search", "status": f"Fetched {len(web_docs)} results from web"})
-        return {"documents": state.get("documents", []) + web_docs, "trace_steps": trace_steps, "web_fallback_needed": False}
+        return {"documents": state.get("documents", []) + web_docs, "trace_steps": trace_steps}
         
     except Exception as e:
         print(f"Tavily search failed: {e}")
