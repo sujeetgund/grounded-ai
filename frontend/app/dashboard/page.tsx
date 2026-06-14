@@ -1,10 +1,11 @@
-import React from "react";
+import React, { Suspense } from "react";
 import Link from "next/link";
 import {
   PiChatCircleTextDuotone as MessageSquare,
   PiDotsThreeVerticalBold as MoreVertical,
   PiLightningFill as Activity,
   PiTrendUpBold,
+  PiSpinnerGapBold,
 } from "react-icons/pi";
 import { MdFolderCopy as Folder } from "react-icons/md";
 import { IoDocuments as FileText } from "react-icons/io5";
@@ -38,7 +39,28 @@ async function getCollections(): Promise<Collection[]> {
   }
 }
 
-export default async function DashboardPage() {
+export default function DashboardPage() {
+  return (
+    <div className="min-h-screen bg-brand-canvas-soft font-sans flex flex-col">
+      <DashboardHeader />
+
+      <Suspense fallback={<DashboardLoading />}>
+        <DashboardContent />
+      </Suspense>
+    </div>
+  );
+}
+
+function DashboardLoading() {
+  return (
+    <main className="flex-grow max-w-6xl w-full mx-auto p-8 flex flex-col items-center justify-center gap-4">
+      <PiSpinnerGapBold className="w-10 h-10 animate-spin text-brand-primary" />
+      <span className="text-brand-mute font-semibold">Loading your workspace...</span>
+    </main>
+  );
+}
+
+async function DashboardContent() {
   const collections = await getCollections();
   
   const stats = [
@@ -63,10 +85,6 @@ export default async function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-brand-canvas-soft font-sans flex flex-col">
-      <DashboardHeader />
-
-      {/* Main Content */}
       <main className="flex-grow max-w-6xl w-full mx-auto p-8 flex flex-col gap-10">
         {/* Welcome Section */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mt-4">
@@ -210,6 +228,5 @@ export default async function DashboardPage() {
           )}
         </div>
       </main>
-    </div>
   );
 }

@@ -202,8 +202,8 @@ export default function EvalDashboardPage() {
         {/* History Line Chart */}
         <div className="bg-brand-canvas rounded-3xl p-8 shadow-sm border border-brand-canvas-soft">
           <h3 className="font-display font-bold text-xl text-brand-ink mb-6">Evaluation Score Trends</h3>
-          <div className="w-full h-72">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="w-full h-72 min-w-0 min-h-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <LineChart data={runs} margin={{ top: 5, right: 20, bottom: 5, left: -20 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                 <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#8b8f97', fontWeight: 500 }} dy={10} />
