@@ -11,6 +11,11 @@ class CollectionBase(BaseModel):
 class CollectionCreate(CollectionBase):
     pass
 
+class CollectionUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = None
+
 class CollectionResponse(CollectionBase):
     id: str
     created_at: datetime

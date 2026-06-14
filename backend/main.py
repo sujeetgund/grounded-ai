@@ -1,5 +1,5 @@
 import asyncio
-from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, Request, Response
 from typing import List
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -11,8 +11,8 @@ import json
 from config import settings
 from database import get_db
 from models import Document, DocumentStatus, Collection, DocumentChunk
-from schemas import CollectionCreate, CollectionResponse, CollectionDetailResponse, DocumentResponse, ChatRequest
-from s3_utils import upload_file_to_s3
+from schemas import CollectionCreate, CollectionUpdate, CollectionResponse, CollectionDetailResponse, DocumentResponse, ChatRequest
+from s3_utils import upload_file_to_s3, delete_file_from_s3
 from arq import create_pool
 from worker import redis_settings
 
@@ -193,6 +193,55 @@ def get_collection(collection_id: str, db: Session = Depends(get_db)):
         documents=doc_responses
     )
     return response
+
+@app.patch("/collections/{collection_id}", response_model=CollectionResponse)
+def update_collection(collection_id: str, collection_update: CollectionUpdate, db: Session = Depends(get_db)):
+    col = db.query(Collection).filter(Collection.id == collection_id).first()
+    if not col:
+        raise HTTPException(status_code=404, detail="Collection not found")
+        
+    update_data = collection_update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(col, key, value)
+        
+    db.commit()
+    db.refresh(col)
+    
+    response = CollectionResponse.model_validate(col)
+    response.docCount = db.query(Document).filter(Document.collection_id == col.id).count()
+    return response
+
+@app.delete("/collections/{collection_id}", status_code=204)
+def delete_collection(collection_id: str, db: Session = Depends(get_db)):
+    col = db.query(Collection).filter(Collection.id == collection_id).first()
+    if not col:
+        raise HTTPException(status_code=404, detail="Collection not found")
+        
+    # Delete all associated documents from S3
+    for doc in col.documents:
+        try:
+            delete_file_from_s3(doc.s3_key)
+        except Exception as e:
+            print(f"Failed to delete S3 object {doc.s3_key}: {e}")
+            
+    db.delete(col)
+    db.commit()
+    return Response(status_code=204)
+
+@app.delete("/documents/{document_id}", status_code=204)
+def delete_document(document_id: str, db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    try:
+        delete_file_from_s3(doc.s3_key)
+    except Exception as e:
+        print(f"Failed to delete S3 object {doc.s3_key}: {e}")
+        
+    db.delete(doc)
+    db.commit()
+    return Response(status_code=204)
 
 @app.post("/collections/{collection_id}/chat")
 async def chat_with_collection(collection_id: str, request: Request, chat_request: ChatRequest):

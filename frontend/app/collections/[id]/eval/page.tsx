@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { 
   PiCaretLeftBold, 
   PiPlayCircleFill,
@@ -35,6 +36,8 @@ type FailedQuery = {
 };
 
 export default function EvalDashboardPage() {
+  const params = useParams();
+  const collectionId = params.id as string;
   const [isRunning, setIsRunning] = useState(false);
   const [isFailedQueriesOpen, setIsFailedQueriesOpen] = useState(false);
   
@@ -70,7 +73,7 @@ export default function EvalDashboardPage() {
         queriesRun: 155
       }]);
       setIsRunning(false);
-    }, 3000);
+    }, 2000);
   };
 
   const latestRun = runs[runs.length - 1];
@@ -97,7 +100,7 @@ export default function EvalDashboardPage() {
       {/* Header NavBar */}
       <header className="bg-brand-canvas px-8 py-4 flex items-center justify-between border-b border-brand-canvas-soft">
         <div className="flex items-center gap-4">
-          <Link href="/collections/123" className="w-10 h-10 rounded-full bg-brand-canvas-soft flex items-center justify-center hover:bg-brand-primary-pale transition-colors">
+          <Link href={`/collections/${collectionId}`} className="w-10 h-10 rounded-full bg-brand-canvas-soft flex items-center justify-center hover:bg-brand-primary-pale transition-colors">
             <PiCaretLeftBold className="w-5 h-5 text-brand-ink" />
           </Link>
           <div>
