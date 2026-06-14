@@ -61,8 +61,21 @@ def retrieve_node(state: AgentState) -> AgentState:
     """
     queries = state["queries"]
     collection_id = state["collection_id"]
+    settings = state.get("collection_settings", {})
     
-    docs = hybrid_search(queries, collection_id, k=10)
+    top_k = settings.get("topK", 10)
+    # the similarityThreshold from UI is 0-100, we convert it to 0.0-1.0
+    sim_threshold_ui = settings.get("similarityThreshold", 50)
+    sim_threshold = float(sim_threshold_ui) / 100.0 if sim_threshold_ui else 0.5
+    retrieval_mode = settings.get("retrievalMode", "hybrid")
+    
+    docs = hybrid_search(
+        queries=queries, 
+        collection_id=collection_id, 
+        top_k=top_k, 
+        similarity_threshold=sim_threshold, 
+        retrieval_mode=retrieval_mode
+    )
     
     trace_steps = state.get("trace_steps", [])
     trace_steps.append({"node": "retrieve", "status": f"Retrieved and re-ranked top {len(docs)} chunks"})
@@ -76,10 +89,14 @@ def grade_documents_node(state: AgentState) -> AgentState:
     """
     queries = state["queries"]
     documents = state["documents"]
+    settings = state.get("collection_settings", {})
     main_query = queries[0] if queries else ""
     
+    allow_web_fallback = settings.get("webFallback", True)
+    
     if not documents:
-        return {"documents": [], "relevance_score": 0.0, "web_fallback_needed": True}
+        # If no documents and web fallback is allowed, trigger it. Otherwise we just pass empty docs.
+        return {"documents": [], "relevance_score": 0.0, "web_fallback_needed": allow_web_fallback}
         
     combined_context = "\n".join([doc['content'] for doc in documents])
     
@@ -97,10 +114,19 @@ Output ONLY 'yes' or 'no'. CRITICAL INSTRUCTION: Do NOT use or call any tools or
     grade = response.content.strip().lower()
     
     web_fallback = "no" in grade
+    
+    # Override LLM if user explicitly disabled web fallback
+    if not allow_web_fallback:
+        web_fallback = False
+        
     relevance_score = 1.0 if not web_fallback else 0.0
     
     trace_steps = state.get("trace_steps", [])
-    status = "Context sufficient" if not web_fallback else "Context insufficient, web fallback triggered"
+    if not allow_web_fallback and "no" in grade:
+        status = "Context insufficient, but web fallback is disabled"
+    else:
+        status = "Context sufficient" if not web_fallback else "Context insufficient, web fallback triggered"
+        
     trace_steps.append({
         "node": "grade_documents", 
         "status": status

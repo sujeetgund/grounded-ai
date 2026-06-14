@@ -61,6 +61,12 @@ def build_graph() -> StateGraph:
         if (state.get("queries") and "CHITCHAT" in state["queries"]) or state.get("is_grounded"):
             return "END"
             
+        settings = state.get("collection_settings", {})
+        corrective_loop = settings.get("correctiveLoop", True)
+        
+        if not corrective_loop:
+            return "END"
+            
         iterations = state.get("iterations", 0)
         
         if iterations >= 2:

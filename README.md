@@ -1,4 +1,4 @@
-# GroundedAI
+# GROUNDED AI
 
 ---
 

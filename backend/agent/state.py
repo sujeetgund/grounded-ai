@@ -15,6 +15,9 @@ class AgentState(TypedDict):
     # ID of the collection to search in
     collection_id: str
     
+    # Collection settings
+    collection_settings: Dict[str, Any]
+    
     # Retrieved document chunks
     documents: List[Dict[str, Any]]
     

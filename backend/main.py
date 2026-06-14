@@ -244,9 +244,16 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
     return Response(status_code=204)
 
 @app.post("/collections/{collection_id}/chat")
-async def chat_with_collection(collection_id: str, request: Request, chat_request: ChatRequest):
+async def chat_with_collection(collection_id: str, request: Request, chat_request: ChatRequest, db: Session = Depends(get_db)):
     from agent.graph import agent_app
     from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+    
+    # Fetch collection settings
+    col = db.query(Collection).filter(Collection.id == collection_id).first()
+    if not col:
+        raise HTTPException(status_code=404, detail="Collection not found")
+        
+    collection_settings = col.settings or {}
     
     # Convert messages
     langchain_messages = []
@@ -261,6 +268,7 @@ async def chat_with_collection(collection_id: str, request: Request, chat_reques
     initial_state = {
         "messages": langchain_messages,
         "collection_id": collection_id,
+        "collection_settings": collection_settings,
         "trace_steps": [],
         "iterations": 0
     }
